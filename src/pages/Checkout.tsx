@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Clock, CreditCard, Smartphone, Shield, ArrowRight } from 'lucide-react';
 import { COHORTS, COURSES, useAuth, formatCurrency, formatDate } from '../store';
+import { initializePayment, generatePaymentReference, isPaystackConfigured, getPaystackStatus, verifyTransaction } from '../lib/paystack';
 
 // ============ CHECKOUT ============
 
@@ -92,15 +93,70 @@ export function CheckoutPage() {
 
     setLoading(true);
 
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setProcessing(true);
+    // Generate unique payment reference
+    const paymentReference = generatePaymentReference();
 
-    // Simulate successful payment (in production, this would call Paystack API)
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Check if Paystack is configured
+    if (!isPaystackConfigured()) {
+      // Demo mode: simulate payment for testing
+      console.warn('⚠️  Paystack not configured. Running in demo mode.');
+      console.warn('Set VITE_PAYSTACK_PUBLIC_KEY to enable real payments.');
+      
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setProcessing(true);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Navigate to success page with demo reference
+      navigate(`/payment/success?reference=${paymentReference}&demo=true`);
+      return;
+    }
 
-    // Navigate to success page
-    navigate('/payment/success?reference=PS-' + Date.now());
+    // Real Paystack integration
+    try {
+      setProcessing(true);
+
+      await initializePayment(
+        {
+          email: formData.email,
+          amount: course.price_amount, // Already in minor units (pesewas)
+          reference: paymentReference,
+          firstName: formData.full_name.split(' ')[0],
+          lastName: formData.full_name.split(' ').slice(1).join(' ') || '',
+          phone: formData.phone,
+          metadata: {
+            cohort_id: cohort.id,
+            course_id: course.id,
+            student_id: user!.id,
+            student_name: formData.full_name,
+          },
+        },
+        // onSuccess callback
+        (transaction) => {
+          console.log('Payment successful:', transaction);
+          // Navigate to success page with reference for verification
+          navigate(`/payment/success?reference=${transaction.reference}`);
+        },
+        // onCancel callback
+        () => {
+          console.log('Payment cancelled by user');
+          setLoading(false);
+          setProcessing(false);
+          setError('Payment was cancelled. Please try again.');
+        },
+        // onError callback
+        (error) => {
+          console.error('Payment error:', error);
+          setLoading(false);
+          setProcessing(false);
+          navigate('/payment/failed');
+        }
+      );
+    } catch (error) {
+      console.error('Failed to initialize payment:', error);
+      setLoading(false);
+      setProcessing(false);
+      setError('Failed to initialize payment. Please try again.');
+    }
   };
 
   const updateField = (field: string, value: string | boolean) => {
@@ -117,6 +173,23 @@ export function CheckoutPage() {
         </div>
 
         <h1 className="text-2xl font-bold text-text-main mb-6">Enrollment checkout</h1>
+
+        {/* Paystack Configuration Status */}
+        {!isPaystackConfigured() && (
+          <div className="mb-6 p-4 bg-warning-light border border-warning/20 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-warning mb-1">Payment System in Demo Mode</p>
+                <p className="text-xs text-text-secondary">
+                  Paystack is not configured. Payments will be simulated for testing. To enable real payments, set the{' '}
+                  <code className="bg-white/50 px-1.5 py-0.5 rounded font-mono text-[11px]">VITE_PAYSTACK_PUBLIC_KEY</code>{' '}
+                  environment variable with your Paystack public key.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Form */}
@@ -331,47 +404,130 @@ export function CheckoutPage() {
 
 export function PaymentSuccessPage() {
   const { isAuthenticated, user } = useAuth();
-  const reference = new URLSearchParams(window.location.search).get('reference');
+  const params = new URLSearchParams(window.location.search);
+  const reference = params.get('reference');
+  const isDemo = params.get('demo') === 'true';
+  const [verifying, setVerifying] = useState(true);
+  const [verified, setVerified] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+
+  // Verify transaction on mount
+  useEffect(() => {
+    async function verifyPayment() {
+      if (!reference) {
+        setVerificationError('No payment reference found.');
+        setVerifying(false);
+        return;
+      }
+
+      try {
+        // In production, this would call a server-side API endpoint
+        // that verifies the transaction with Paystack using the secret key
+        const result = await verifyTransaction(reference);
+
+        if (result.status && result.data.status === 'success') {
+          setVerified(true);
+          // In production: update enrollment status in database
+          console.log('Transaction verified:', result.data);
+        } else {
+          setVerificationError('Payment verification failed. Please contact support.');
+        }
+      } catch (error) {
+        console.error('Verification error:', error);
+        setVerificationError('Unable to verify payment. Please contact support.');
+      } finally {
+        setVerifying(false);
+      }
+    }
+
+    verifyPayment();
+  }, [reference]);
 
   return (
     <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-12 bg-bg-light">
       <div className="max-w-md w-full text-center">
         <div className="bg-white border border-border rounded-xl p-8 shadow-sm">
-          <div className="w-14 h-14 bg-success-light rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="w-7 h-7 text-success" />
-          </div>
-          <h1 className="text-xl font-bold text-text-main mb-2">Payment successful!</h1>
-          <p className="text-sm text-text-secondary mb-6">
-            Your enrollment has been confirmed. You now have access to the student portal.
-          </p>
+          {verifying ? (
+            <>
+              <div className="w-14 h-14 bg-blue-light rounded-full flex items-center justify-center mx-auto mb-4">
+                <div className="w-6 h-6 border-2 border-navy/30 border-t-navy rounded-full animate-spin" />
+              </div>
+              <h1 className="text-xl font-bold text-text-main mb-2">Verifying payment...</h1>
+              <p className="text-sm text-text-secondary">
+                Please wait while we confirm your payment.
+              </p>
+            </>
+          ) : verificationError ? (
+            <>
+              <div className="w-14 h-14 bg-warning-light rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-7 h-7 text-warning" />
+              </div>
+              <h1 className="text-xl font-bold text-text-main mb-2">Verification issue</h1>
+              <p className="text-sm text-text-secondary mb-4">
+                {verificationError}
+              </p>
+              <p className="text-xs text-text-secondary mb-6">
+                Your payment may still be processing. Please check your email or contact support if you don't receive confirmation within 5 minutes.
+              </p>
+              <div className="space-y-3">
+                <Link
+                  to="/contact"
+                  className="w-full inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-navy bg-blue-light rounded-lg hover:bg-navy/10 transition-colors"
+                >
+                  Contact Support
+                </Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-14 h-14 bg-success-light rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-7 h-7 text-success" />
+              </div>
+              <h1 className="text-xl font-bold text-text-main mb-2">Payment successful!</h1>
+              <p className="text-sm text-text-secondary mb-6">
+                Your enrollment has been confirmed. You now have access to the student portal.
+              </p>
 
-          {reference && (
-            <div className="bg-bg-light rounded-lg p-3 mb-6">
-              <p className="text-xs text-text-secondary">Payment reference</p>
-              <p className="text-sm font-mono font-medium text-text-main">{reference}</p>
-            </div>
+              {reference && (
+                <div className="bg-bg-light rounded-lg p-3 mb-6">
+                  <p className="text-xs text-text-secondary">Payment reference</p>
+                  <p className="text-sm font-mono font-medium text-text-main">{reference}</p>
+                </div>
+              )}
+
+              {isDemo && (
+                <div className="bg-warning-light border border-warning/20 rounded-lg p-3 mb-6 text-left">
+                  <p className="text-xs font-medium text-warning mb-1">Demo Mode</p>
+                  <p className="text-xs text-text-secondary">
+                    This is a simulated payment. Configure <code className="bg-white/50 px-1 rounded">VITE_PAYSTACK_PUBLIC_KEY</code> to enable real payments.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <Link
+                  to="/student/dashboard"
+                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-navy rounded-lg hover:bg-navy-deep transition-colors"
+                >
+                  Go to Student Dashboard
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+                <Link
+                  to="/student/cohort"
+                  className="w-full inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium text-navy bg-blue-light rounded-lg hover:bg-navy/10 transition-colors"
+                >
+                  View Cohort Schedule
+                </Link>
+              </div>
+            </>
           )}
-
-          <div className="space-y-3">
-            <Link
-              to="/student/dashboard"
-              className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-navy rounded-lg hover:bg-navy-deep transition-colors"
-            >
-              Go to Student Dashboard
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              to="/student/cohort"
-              className="w-full inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium text-navy bg-blue-light rounded-lg hover:bg-navy/10 transition-colors"
-            >
-              View Cohort Schedule
-            </Link>
-          </div>
         </div>
 
-        <p className="mt-4 text-xs text-text-secondary">
-          A confirmation email has been sent to your email address.
-        </p>
+        {!verifying && !verificationError && (
+          <p className="mt-4 text-xs text-text-secondary">
+            A confirmation email has been sent to your email address.
+          </p>
+        )}
       </div>
     </div>
   );
