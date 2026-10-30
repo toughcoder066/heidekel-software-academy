@@ -31,7 +31,7 @@ interface CohortContextType {
   addSession: (cohortId: string, data: SessionFormData) => Session | null;
   updateSession: (cohortId: string, sessionId: string, data: Partial<SessionFormData>) => boolean;
   deleteSession: (cohortId: string, sessionId: string) => boolean;
-  canEnroll: (cohortId: string, studentId: string) => { allowed: boolean; reason?: string };
+  canEnroll: (cohortId: string, studentId: string, enrolledCount?: number) => { allowed: boolean; reason?: string };
 }
 
 const CohortContext = createContext<CohortContextType | null>(null);
@@ -145,7 +145,7 @@ export function CohortProvider({ children }: { children: ReactNode }) {
     return found;
   }, []);
 
-  const canEnroll = useCallback((cohortId: string, studentId: string): { allowed: boolean; reason?: string } => {
+  const canEnroll = useCallback((cohortId: string, studentId: string, enrolledCount?: number): { allowed: boolean; reason?: string } => {
     const cohort = cohorts.find(c => c.id === cohortId);
     if (!cohort) {
       return { allowed: false, reason: 'Cohort not found' };
@@ -162,8 +162,9 @@ export function CohortProvider({ children }: { children: ReactNode }) {
       return { allowed: false, reason: 'This cohort has already ended' };
     }
 
-    // Check capacity
-    if (cohort.enrolled_count >= cohort.capacity) {
+    // Check capacity (use provided count or cohort's count)
+    const currentCount = enrolledCount ?? cohort.enrolled_count;
+    if (currentCount >= cohort.capacity) {
       return { allowed: false, reason: 'This cohort is full' };
     }
 
@@ -174,14 +175,8 @@ export function CohortProvider({ children }: { children: ReactNode }) {
       return { allowed: false, reason: 'Enrollment deadline has passed' };
     }
 
-    // Check duplicate enrollment (would need enrollments context in production)
-    // For now, we just check the static enrollment list
-    const alreadyEnrolled = (window as any).__enrollments?.some(
-      (e: any) => e.student_id === studentId && e.cohort_id === cohortId
-    );
-    if (alreadyEnrolled) {
-      return { allowed: false, reason: 'You are already enrolled in this cohort' };
-    }
+    // Note: Duplicate enrollment check is handled by the EnrollmentContext
+    // This context focuses on cohort availability; enrollment state is separate.
 
     return { allowed: true };
   }, [cohorts]);

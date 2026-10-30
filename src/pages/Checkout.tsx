@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Clock, CreditCard, Smartphone, Shield, Arrow
 import { COHORTS, COURSES, useAuth, formatCurrency, formatDate } from '../store';
 import { initializePayment, generatePaymentReference, isPaystackConfigured, getPaystackStatus, verifyTransaction } from '../lib/paystack';
 import { useCohorts } from '../lib/cohort-context';
+import { useEnrollments } from '../lib/enrollment-context';
 
 // ============ CHECKOUT ============
 
@@ -15,6 +16,8 @@ export function CheckoutPage() {
 
   const cohort = getCohort(cohortId || '');
   const course = cohort ? COURSES.find(c => c.id === cohort.course_id) : null;
+
+  const { createOrder, createPayment, markPaymentSuccessful, updateOrderStatus, createEnrollment, isStudentEnrolled, getEnrolledCount } = useEnrollments();
 
   const [formData, setFormData] = useState({
     full_name: user?.full_name || '',
@@ -53,7 +56,25 @@ export function CheckoutPage() {
   }
 
   // Check enrollment eligibility using the cohort context
-  const eligibility = canEnroll(cohort.id, user!.id);
+  const realEnrolledCount = getEnrolledCount(cohort.id);
+  const eligibility = canEnroll(cohort.id, user!.id, realEnrolledCount);
+  
+  // Also check if already enrolled
+  const alreadyEnrolled = isStudentEnrolled(user!.id, cohort.id);
+  
+  if (alreadyEnrolled) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-12 bg-bg-light">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-10 h-10 text-error mx-auto mb-3" />
+          <h2 className="text-xl font-bold text-text-main mb-2">Already enrolled</h2>
+          <p className="text-sm text-text-secondary mb-4">You are already enrolled in this cohort.</p>
+          <Link to="/student/dashboard" className="text-sm font-medium text-navy hover:text-navy-deep">Go to Dashboard →</Link>
+        </div>
+      </div>
+    );
+  }
+  
   if (!eligibility.allowed) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-12 bg-bg-light">
@@ -86,6 +107,23 @@ export function CheckoutPage() {
     // Generate unique payment reference
     const paymentReference = generatePaymentReference();
 
+    // Create order record (server-side in production)
+    const order = createOrder({
+      student_id: user!.id,
+      cohort_id: cohort.id,
+      amount: course.price_amount,
+      currency: course.currency,
+    });
+
+    // Create payment record (pending)
+    const payment = createPayment({
+      order_id: order.id,
+      provider: 'paystack',
+      provider_reference: paymentReference,
+      amount: course.price_amount,
+      currency: course.currency,
+    });
+
     // Check if Paystack is configured
     if (!isPaystackConfigured()) {
       // Demo mode: simulate payment for testing
@@ -95,6 +133,11 @@ export function CheckoutPage() {
       await new Promise(resolve => setTimeout(resolve, 1500));
       setProcessing(true);
       await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Simulate successful payment
+      markPaymentSuccessful(payment.id);
+      updateOrderStatus(order.id, 'paid');
+      createEnrollment(user!.id, cohort.id, order.id);
       
       // Navigate to success page with demo reference
       navigate(`/payment/success?reference=${paymentReference}&demo=true`);
@@ -118,17 +161,31 @@ export function CheckoutPage() {
             course_id: course.id,
             student_id: user!.id,
             student_name: formData.full_name,
+            order_id: order.id,
           },
         },
         // onSuccess callback
-        (transaction) => {
+        async (transaction) => {
           console.log('Payment successful:', transaction);
+          
+          // Verify transaction (server-side in production)
+          const verification = await verifyTransaction(transaction.reference);
+          
+          if (verification.status && verification.data.status === 'success') {
+            // Mark payment as successful
+            markPaymentSuccessful(payment.id);
+            updateOrderStatus(order.id, 'paid');
+            // Create enrollment
+            createEnrollment(user!.id, cohort.id, order.id);
+          }
+          
           // Navigate to success page with reference for verification
           navigate(`/payment/success?reference=${transaction.reference}`);
         },
         // onCancel callback
         () => {
           console.log('Payment cancelled by user');
+          updateOrderStatus(order.id, 'cancelled');
           setLoading(false);
           setProcessing(false);
           setError('Payment was cancelled. Please try again.');
@@ -136,6 +193,7 @@ export function CheckoutPage() {
         // onError callback
         (error) => {
           console.error('Payment error:', error);
+          updateOrderStatus(order.id, 'failed');
           setLoading(false);
           setProcessing(false);
           navigate('/payment/failed');
@@ -143,6 +201,7 @@ export function CheckoutPage() {
       );
     } catch (error) {
       console.error('Failed to initialize payment:', error);
+      updateOrderStatus(order.id, 'failed');
       setLoading(false);
       setProcessing(false);
       setError('Failed to initialize payment. Please try again.');

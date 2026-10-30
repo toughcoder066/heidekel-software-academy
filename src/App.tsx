@@ -10,6 +10,8 @@ import { StudentDashboard, StudentCohort, StudentProjects, StudentResources, Stu
 import { AdminDashboard, AdminCourses, AdminEnrollments, AdminPayments, AdminProjects, AdminAnnouncements } from './pages/AdminPortal';
 import { AdminCohorts } from './pages/AdminCohorts';
 import { CohortProvider } from './lib/cohort-context';
+import { EnrollmentProvider } from './lib/enrollment-context';
+import { SubmissionsProvider } from './lib/submissions-context';
 import { AuthContext, USERS, type User } from './store';
 
 // ============ AUTH PROVIDER ============
@@ -109,7 +111,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <CohortProvider>
-          <Routes>
+          <EnrollmentProvider>
+            <SubmissionsProvider>
+              <Routes>
           {/* Marketing pages */}
           <Route element={<MarketingLayout />}>
             <Route path="/" element={<Home />} />
@@ -162,6 +166,8 @@ export default function App() {
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+            </SubmissionsProvider>
+          </EnrollmentProvider>
         </CohortProvider>
       </AuthProvider>
     </BrowserRouter>

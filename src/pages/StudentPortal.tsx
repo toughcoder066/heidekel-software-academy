@@ -1,14 +1,22 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock, BookOpen, FolderKanban, Bell, ExternalLink, CheckCircle2, AlertCircle, FileText, Upload, ArrowRight } from 'lucide-react';
-import { useAuth, COHORTS, COURSES, ENROLLMENTS, PROJECTS, ANNOUNCEMENTS, formatDateTime, formatDate, formatTime } from '../store';
+import { useAuth, COHORTS, COURSES, ANNOUNCEMENTS, formatDateTime, formatDate, formatTime } from '../store';
+import { useCohorts } from '../lib/cohort-context';
+import { useEnrollments } from '../lib/enrollment-context';
+import { useSubmissions } from '../lib/submissions-context';
 
 // ============ STUDENT DASHBOARD ============
 
 export function StudentDashboard() {
   const { user } = useAuth();
-  const enrollment = ENROLLMENTS[0];
-  const cohort = COHORTS.find(c => c.id === enrollment?.cohort_id);
+  const { getStudentEnrollments } = useEnrollments();
+  const { cohorts } = useCohorts();
+  const { getProjectsByCohort } = useSubmissions();
+
+  const studentEnrollments = getStudentEnrollments(user!.id);
+  const enrollment = studentEnrollments[0];
+  const cohort = enrollment ? cohorts.find(c => c.id === enrollment.cohort_id) : undefined;
   const course = cohort ? COURSES.find(c => c.id === cohort.course_id) : null;
 
   // Get next session
@@ -17,7 +25,7 @@ export function StudentDashboard() {
   const nextSession = upcomingSessions[0];
 
   // Get student's projects
-  const cohortProjects = PROJECTS.filter(p => p.cohort_id === cohort?.id);
+  const cohortProjects = cohort ? getProjectsByCohort(cohort.id) : [];
 
   // Get announcements
   const announcements = ANNOUNCEMENTS.filter(a => !a.cohort_id || a.cohort_id === cohort?.id)
@@ -145,8 +153,13 @@ export function StudentDashboard() {
 // ============ STUDENT COHORT ============
 
 export function StudentCohort() {
-  const enrollment = ENROLLMENTS[0];
-  const cohort = COHORTS.find(c => c.id === enrollment?.cohort_id);
+  const { user } = useAuth();
+  const { getStudentEnrollments } = useEnrollments();
+  const { cohorts } = useCohorts();
+  
+  const studentEnrollments = getStudentEnrollments(user!.id);
+  const enrollment = studentEnrollments[0];
+  const cohort = enrollment ? cohorts.find(c => c.id === enrollment.cohort_id) : undefined;
   const course = cohort ? COURSES.find(c => c.id === cohort.course_id) : null;
 
   if (!cohort || !course) {
@@ -255,17 +268,30 @@ export function StudentCohort() {
 // ============ STUDENT PROJECTS ============
 
 export function StudentProjects() {
-  const enrollment = ENROLLMENTS[0];
-  const cohort = COHORTS.find(c => c.id === enrollment?.cohort_id);
-  const cohortProjects = cohort ? PROJECTS.filter(p => p.cohort_id === cohort.id) : [];
+  const { user } = useAuth();
+  const { getStudentEnrollments } = useEnrollments();
+  const { cohorts } = useCohorts();
+  const { getProjectsByCohort, getSubmissionByStudentAndProject, createSubmission } = useSubmissions();
+  
+  const studentEnrollments = getStudentEnrollments(user!.id);
+  const enrollment = studentEnrollments[0];
+  const cohort = enrollment ? cohorts.find(c => c.id === enrollment.cohort_id) : undefined;
+  const cohortProjects = cohort ? getProjectsByCohort(cohort.id) : [];
 
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [submissionText, setSubmissionText] = useState('');
   const [submissionUrl, setSubmissionUrl] = useState('');
-  const [submitted, setSubmitted] = useState<Record<string, boolean>>({});
 
   const handleSubmit = (projectId: string) => {
-    setSubmitted(prev => ({ ...prev, [projectId]: true }));
+    createSubmission({
+      project_id: projectId,
+      student_id: user!.id,
+      submission_text: submissionText,
+      submission_url: submissionUrl,
+    });
+    setSubmissionText('');
+    setSubmissionUrl('');
+    setSelectedProject(null);
   };
 
   return (
@@ -277,7 +303,8 @@ export function StudentProjects() {
 
       <div className="space-y-4">
         {cohortProjects.map(project => {
-          const isSubmitted = submitted[project.id];
+          const submission = getSubmissionByStudentAndProject(user!.id, project.id);
+          const isSubmitted = !!submission;
           const isExpanded = selectedProject === project.id;
           const dueDate = new Date(project.due_at);
           const isOverdue = dueDate < new Date();
@@ -443,8 +470,13 @@ export function StudentResources() {
 // ============ STUDENT ANNOUNCEMENTS ============
 
 export function StudentAnnouncements() {
-  const enrollment = ENROLLMENTS[0];
-  const cohort = COHORTS.find(c => c.id === enrollment?.cohort_id);
+  const { user } = useAuth();
+  const { getStudentEnrollments } = useEnrollments();
+  const { cohorts } = useCohorts();
+  
+  const studentEnrollments = getStudentEnrollments(user!.id);
+  const enrollment = studentEnrollments[0];
+  const cohort = enrollment ? cohorts.find(c => c.id === enrollment.cohort_id) : undefined;
 
   const announcements = ANNOUNCEMENTS
     .filter(a => !a.cohort_id || a.cohort_id === cohort?.id)

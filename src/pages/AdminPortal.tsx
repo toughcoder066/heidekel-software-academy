@@ -1,17 +1,24 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, CreditCard, Calendar, BookOpen, FolderKanban, Bell, TrendingUp, CheckCircle2, Clock, AlertCircle, Search, Filter, Eye, Edit, Plus } from 'lucide-react';
-import { COURSES, COHORTS, ENROLLMENTS, ORDERS, PAYMENTS, USERS, PROJECTS, ANNOUNCEMENTS, formatCurrency, formatDate, formatDateTime } from '../store';
+import { COURSES, COHORTS, USERS, ANNOUNCEMENTS, formatCurrency, formatDate, formatDateTime } from '../store';
+import { useCohorts } from '../lib/cohort-context';
+import { useEnrollments } from '../lib/enrollment-context';
+import { useSubmissions } from '../lib/submissions-context';
 
 // ============ ADMIN DASHBOARD ============
 
 export function AdminDashboard() {
+  const { cohorts } = useCohorts();
+  const { enrollments, payments, getEnrolledCount } = useEnrollments();
+  const { projects, getPendingReviewCount } = useSubmissions();
+
   const totalStudents = USERS.filter(u => u.role === 'student').length;
-  const activeEnrollments = ENROLLMENTS.filter(e => e.status === 'active').length;
-  const successfulPayments = PAYMENTS.filter(p => p.status === 'success').length;
-  const pendingPayments = PAYMENTS.filter(p => p.status === 'pending').length;
-  const activeCohorts = COHORTS.filter(c => c.status === 'active' || c.status === 'upcoming').length;
-  const pendingSubmissions = PROJECTS.filter(p => p.status === 'active').length;
+  const activeEnrollments = enrollments.filter(e => e.status === 'active').length;
+  const successfulPayments = payments.filter(p => p.status === 'success').length;
+  const pendingPayments = payments.filter(p => p.status === 'pending').length;
+  const activeCohorts = cohorts.filter(c => c.status === 'active' || c.status === 'upcoming').length;
+  const pendingSubmissions = getPendingReviewCount();
 
   const stats = [
     { label: 'Total Students', value: totalStudents, icon: Users, color: 'bg-blue-light text-navy' },
@@ -48,9 +55,9 @@ export function AdminDashboard() {
             <Link to="/admin/enrollments" className="text-xs font-medium text-navy hover:text-navy-deep">View all</Link>
           </div>
           <div className="space-y-3">
-            {ENROLLMENTS.slice(0, 5).map(enrollment => {
+            {enrollments.slice(0, 5).map(enrollment => {
               const student = USERS.find(u => u.id === enrollment.student_id);
-              const cohort = COHORTS.find(c => c.id === enrollment.cohort_id);
+              const cohort = cohorts.find(c => c.id === enrollment.cohort_id);
               return (
                 <div key={enrollment.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div>
@@ -95,7 +102,7 @@ export function AdminDashboard() {
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-text-secondary">Total revenue</span>
               <span className="text-sm font-semibold text-text-main">
-                {formatCurrency(PAYMENTS.filter(p => p.status === 'success').reduce((sum, p) => sum + p.amount, 0))}
+                {formatCurrency(payments.filter(p => p.status === 'success').reduce((sum, p) => sum + p.amount, 0))}
               </span>
             </div>
             <div className="flex items-center justify-between py-2">
@@ -116,8 +123,8 @@ export function AdminDashboard() {
             <Link to="/admin/projects" className="text-xs font-medium text-navy hover:text-navy-deep">View all</Link>
           </div>
           <div className="space-y-3">
-            {PROJECTS.map(project => {
-              const cohort = COHORTS.find(c => c.id === project.cohort_id);
+            {projects.map(project => {
+              const cohort = cohorts.find(c => c.id === project.cohort_id);
               return (
                 <div key={project.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div>
@@ -209,8 +216,9 @@ export function AdminCourses() {
 
 export function AdminEnrollments() {
   const [search, setSearch] = useState('');
+  const { enrollments } = useEnrollments();
 
-  const filteredEnrollments = ENROLLMENTS.filter(e => {
+  const filteredEnrollments = enrollments.filter(e => {
     const student = USERS.find(u => u.id === e.student_id);
     return student?.full_name.toLowerCase().includes(search.toLowerCase()) ||
            student?.email.toLowerCase().includes(search.toLowerCase());
@@ -291,8 +299,9 @@ export function AdminEnrollments() {
 
 export function AdminPayments() {
   const [statusFilter, setStatusFilter] = useState('all');
+  const { payments, orders } = useEnrollments();
 
-  const filteredPayments = PAYMENTS.filter(p => {
+  const filteredPayments = payments.filter(p => {
     if (statusFilter === 'all') return true;
     return p.status === statusFilter;
   });
@@ -334,7 +343,7 @@ export function AdminPayments() {
             </thead>
             <tbody>
               {filteredPayments.map(payment => {
-                const order = ORDERS.find(o => o.id === payment.order_id);
+                const order = orders.find(o => o.id === payment.order_id);
                 const student = order ? USERS.find(u => u.id === order.student_id) : null;
                 return (
                   <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg-light transition-colors">
@@ -386,6 +395,9 @@ export function AdminPayments() {
 // ============ ADMIN PROJECTS ============
 
 export function AdminProjects() {
+  const { projects } = useSubmissions();
+  const { cohorts } = useCohorts();
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -400,8 +412,8 @@ export function AdminProjects() {
       </div>
 
       <div className="space-y-4">
-        {PROJECTS.map(project => {
-          const cohort = COHORTS.find(c => c.id === project.cohort_id);
+        {projects.map(project => {
+          const cohort = cohorts.find(c => c.id === project.cohort_id);
           return (
             <div key={project.id} className="bg-white border border-border rounded-xl p-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
