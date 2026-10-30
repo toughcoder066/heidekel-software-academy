@@ -1,0 +1,334 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  fullName      String    @map("full_name")
+  phone         String?
+  role          Role      @default(STUDENT)
+  emailVerified DateTime? @map("email_verified_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  enrollments   Enrollment[]
+  orders        Order[]
+  submissions   ProjectSubmission[]
+  authoredAnnouncements Announcement[] @relation("AuthorAnnouncements")
+  reviewedSubmissions     ProjectSubmission[] @relation("ReviewerSubmissions")
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+// ============================================================================
+// COURSES & CURRICULUM
+// ============================================================================
+
+model Course {
+  id                      String    @id @default(cuid())
+  slug                    String    @unique
+  title                   String
+  shortDescription        String    @map("short_description")
+  description             String
+  coverImageUrl           String?   @map("cover_image_url")
+  priceAmount             Int       @map("price_amount") // in minor units (pesewas)
+  currency                String    @default("GHS")
+  prerequisites           String[]  @default([])
+  learningOutcomes        String[]  @default([]) @map("learning_outcomes")
+  certificateRequirements String[]  @default([]) @map("certificate_requirements")
+  curriculum              Json      @default("[]") // Array of modules
+  publishedAt             DateTime? @map("published_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  cohorts Cohort[]
+
+  @@map("courses")
+}
+
+// ============================================================================
+// COHORTS & SESSIONS
+// ============================================================================
+
+model Cohort {
+  id                  String        @id @default(cuid())
+  courseId            String        @map("course_id")
+  name                String
+  startDate           DateTime      @map("start_date") @db.Date
+  endDate             DateTime      @map("end_date") @db.Date
+  enrollmentDeadline  DateTime      @map("enrollment_deadline") @db.Date
+  capacity            Int
+  status              CohortStatus  @default(DRAFT)
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  course        Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sessions      CohortSession[]
+  enrollments   Enrollment[]
+  orders        Order[]
+  projects      Project[]
+  announcements Announcement[]
+
+  @@map("cohorts")
+}
+
+enum CohortStatus {
+  DRAFT
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model CohortSession {
+  id           String   @id @default(cuid())
+  cohortId     String   @map("cohort_id")
+  title        String
+  description  String?
+  startsAt     DateTime @map("starts_at")
+  endsAt       DateTime @map("ends_at")
+  meetingUrl   String?  @map("meeting_url")
+  recordingUrl String?  @map("recording_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  cohort      Cohort       @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  attendance  Attendance[]
+
+  @@map("cohort_sessions")
+}
+
+// ============================================================================
+// ORDERS, PAYMENTS & ENROLLMENTS
+// ============================================================================
+
+model Order {
+  id         String      @id @default(cuid())
+  studentId  String      @map("student_id")
+  cohortId   String      @map("cohort_id")
+  amount     Int         // in minor units (pesewas)
+  currency   String      @default("GHS")
+  status     OrderStatus @default(PENDING)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  student     User       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohort      Cohort     @relation(fields: [cohortId], references: [id], onDelete: Restrict)
+  payments    Payment[]
+  enrollment  Enrollment?
+
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+model Payment {
+  id                 String        @id @default(cuid())
+  orderId            String        @map("order_id")
+  provider           String
+  providerReference  String        @unique @map("provider_reference")
+  amount             Int
+  currency           String        @default("GHS")
+  status             PaymentStatus @default(PENDING)
+  paidAt             DateTime?     @map("paid_at")
+  providerMetadata   Json?         @map("provider_metadata")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Enrollment {
+  id         String         @id @default(cuid())
+  studentId  String         @map("student_id")
+  cohortId   String         @map("cohort_id")
+  orderId    String         @unique @map("order_id")
+  status     EnrollmentStatus @default(ACTIVE)
+  enrolledAt DateTime       @default(now()) @map("enrolled_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  student User   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohort  Cohort @relation(fields: [cohortId], references: [id], onDelete: Restrict)
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, cohortId])
+  @@map("enrollments")
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================================================
+// PROJECTS & SUBMISSIONS
+// ============================================================================
+
+model Project {
+  id          String        @id @default(cuid())
+  cohortId    String        @map("cohort_id")
+  title       String
+  description String
+  instructions String
+  dueAt       DateTime      @map("due_at")
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  cohort      Cohort              @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  submissions ProjectSubmission[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+model ProjectSubmission {
+  id              String             @id @default(cuid())
+  projectId       String             @map("project_id")
+  studentId       String             @map("student_id")
+  submissionText  String?            @map("submission_text")
+  submissionUrl   String?            @map("submission_url")
+  storagePath     String?            @map("storage_path")
+  status          SubmissionStatus   @default(NOT_STARTED)
+  feedback        String?
+  reviewedBy      String?            @map("reviewed_by")
+  reviewedAt      DateTime?          @map("reviewed_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  student   User    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  reviewer  User?   @relation("ReviewerSubmissions", fields: [reviewedBy], references: [id])
+
+  @@unique([projectId, studentId])
+  @@map("project_submissions")
+}
+
+enum SubmissionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  CHANGES_REQUESTED
+  REVIEWED
+}
+
+// ============================================================================
+// ANNOUNCEMENTS
+// ============================================================================
+
+model Announcement {
+  id          String   @id @default(cuid())
+  authorId    String   @map("author_id")
+  cohortId    String?  @map("cohort_id")
+  title       String
+  body        String
+  publishedAt DateTime @default(now()) @map("published_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  author User    @relation("AuthorAnnouncements", fields: [authorId], references: [id], onDelete: Cascade)
+  cohort Cohort? @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+}
+
+// ============================================================================
+// ATTENDANCE
+// ============================================================================
+
+model Attendance {
+  id          String          @id @default(cuid())
+  sessionId   String          @map("session_id")
+  studentId   String          @map("student_id")
+  status      AttendanceStatus
+  recordedAt  DateTime        @default(now()) @map("recorded_at")
+
+  // Relations
+  session CohortSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@map("attendance")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+  LATE
+}
+
+// ============================================================================
+// AUDIT LOGS
+// ============================================================================
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?  @map("user_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  details      Json?
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
