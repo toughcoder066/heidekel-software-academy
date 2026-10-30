@@ -7,7 +7,9 @@ import { AboutPage, FAQPage, ContactPage, PrivacyPage, TermsPage, RefundPolicyPa
 import { LoginPage, RegisterPage, ResetPasswordPage } from './pages/Auth';
 import { CheckoutPage, PaymentSuccessPage, PaymentPendingPage, PaymentFailedPage } from './pages/Checkout';
 import { StudentDashboard, StudentCohort, StudentProjects, StudentResources, StudentAnnouncements, StudentProfile } from './pages/StudentPortal';
-import { AdminDashboard, AdminCourses, AdminCohorts, AdminEnrollments, AdminPayments, AdminProjects, AdminAnnouncements } from './pages/AdminPortal';
+import { AdminDashboard, AdminCourses, AdminEnrollments, AdminPayments, AdminProjects, AdminAnnouncements } from './pages/AdminPortal';
+import { AdminCohorts } from './pages/AdminCohorts';
+import { CohortProvider } from './lib/cohort-context';
 import { AuthContext, USERS, type User } from './store';
 
 // ============ AUTH PROVIDER ============
@@ -106,7 +108,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
+        <CohortProvider>
+          <Routes>
           {/* Marketing pages */}
           <Route element={<MarketingLayout />}>
             <Route path="/" element={<Home />} />
@@ -159,6 +162,7 @@ export default function App() {
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </CohortProvider>
       </AuthProvider>
     </BrowserRouter>
   );

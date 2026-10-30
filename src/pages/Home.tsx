@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Clock, Users, Award, BookOpen, Zap, Target, MessageSquare, BarChart3, ChevronDown } from 'lucide-react';
-import { COURSES, getNextCohort, formatCurrency } from '../store';
+import { COURSES, formatCurrency } from '../store';
+import { useCohorts } from '../lib/cohort-context';
 
 export default function Home() {
+  const { cohorts } = useCohorts();
   const course = COURSES[0];
-  const nextCohort = getNextCohort(course.id);
+  const nextCohort = cohorts.find(c => c.course_id === course.id && (c.status === 'upcoming' || c.status === 'active'));
 
   return (
     <div>

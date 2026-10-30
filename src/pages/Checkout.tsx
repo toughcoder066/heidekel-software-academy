@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Clock, CreditCard, Smartphone, Shield, ArrowRight } from 'lucide-react';
 import { COHORTS, COURSES, useAuth, formatCurrency, formatDate } from '../store';
 import { initializePayment, generatePaymentReference, isPaystackConfigured, getPaystackStatus, verifyTransaction } from '../lib/paystack';
+import { useCohorts } from '../lib/cohort-context';
 
 // ============ CHECKOUT ============
 
@@ -10,8 +11,9 @@ export function CheckoutPage() {
   const { cohortId } = useParams<{ cohortId: string }>();
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
+  const { getCohort, canEnroll } = useCohorts();
 
-  const cohort = COHORTS.find(c => c.id === cohortId);
+  const cohort = getCohort(cohortId || '');
   const course = cohort ? COURSES.find(c => c.id === cohort.course_id) : null;
 
   const [formData, setFormData] = useState({
@@ -50,27 +52,15 @@ export function CheckoutPage() {
     );
   }
 
-  // Check if cohort is enrollable
-  if (cohort.status !== 'upcoming' && cohort.status !== 'active') {
+  // Check enrollment eligibility using the cohort context
+  const eligibility = canEnroll(cohort.id, user!.id);
+  if (!eligibility.allowed) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-12 bg-bg-light">
         <div className="text-center max-w-md">
           <AlertCircle className="w-10 h-10 text-error mx-auto mb-3" />
-          <h2 className="text-xl font-bold text-text-main mb-2">Enrollment closed</h2>
-          <p className="text-sm text-text-secondary mb-4">This cohort is no longer accepting enrollments.</p>
-          <Link to="/courses" className="text-sm font-medium text-navy hover:text-navy-deep">← View available courses</Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (cohort.enrolled_count >= cohort.capacity) {
-    return (
-      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-12 bg-bg-light">
-        <div className="text-center max-w-md">
-          <AlertCircle className="w-10 h-10 text-warning mx-auto mb-3" />
-          <h2 className="text-xl font-bold text-text-main mb-2">Cohort is full</h2>
-          <p className="text-sm text-text-secondary mb-4">This cohort has reached its capacity. Check back for future cohorts.</p>
+          <h2 className="text-xl font-bold text-text-main mb-2">Enrollment unavailable</h2>
+          <p className="text-sm text-text-secondary mb-4">{eligibility.reason}</p>
           <Link to="/courses" className="text-sm font-medium text-navy hover:text-navy-deep">← View available courses</Link>
         </div>
       </div>

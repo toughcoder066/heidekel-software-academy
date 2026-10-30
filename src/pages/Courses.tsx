@@ -1,10 +1,16 @@
 import { Link, useParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Clock, Users, Calendar, Award, BookOpen, ChevronDown, AlertCircle } from 'lucide-react';
-import { COURSES, COHORTS, getCourseBySlug, getNextCohort, formatCurrency, formatDate } from '../store';
+import { COURSES, COHORTS, getCourseBySlug, formatCurrency, formatDate } from '../store';
+import { useCohorts } from '../lib/cohort-context';
+
+function getNextCohort(courseId: string, cohorts: any[]) {
+  return cohorts.find(c => c.course_id === courseId && (c.status === 'upcoming' || c.status === 'active'));
+}
 
 // ============ COURSES CATALOGUE ============
 
 export function CoursesPage() {
+  const { cohorts } = useCohorts();
   const publishedCourses = COURSES.filter(c => c.published_at);
 
   return (
@@ -19,7 +25,7 @@ export function CoursesPage() {
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {publishedCourses.map(course => {
-            const nextCohort = getNextCohort(course.id);
+            const nextCohort = getNextCohort(course.id, cohorts);
             return (
               <Link
                 key={course.id}
@@ -73,6 +79,7 @@ export function CoursesPage() {
 
 export function CourseDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { cohorts, getCohortsByCourse } = useCohorts();
   const course = getCourseBySlug(slug || '');
 
   if (!course) {
@@ -90,8 +97,8 @@ export function CourseDetailPage() {
     );
   }
 
-  const cohorts = COHORTS.filter(c => c.course_id === course.id);
-  const nextCohort = getNextCohort(course.id);
+  const courseCohorts = getCohortsByCourse(course.id);
+  const nextCohort = getNextCohort(course.id, cohorts);
   const isEnrollable = nextCohort && (nextCohort.status === 'upcoming' || nextCohort.status === 'active') && nextCohort.enrolled_count < nextCohort.capacity;
 
   return (
@@ -294,13 +301,13 @@ export function CourseDetailPage() {
       </section>
 
       {/* Cohort Schedule */}
-      {cohorts.length > 0 && (
+      {courseCohorts.length > 0 && (
         <section className="py-12 sm:py-16 bg-bg-light">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl">
               <h2 className="text-2xl font-bold text-text-main mb-6">Available cohorts</h2>
               <div className="space-y-4">
-                {cohorts.map(cohort => (
+                {courseCohorts.map(cohort => (
                   <div key={cohort.id} className="bg-white border border-border rounded-xl p-5">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
